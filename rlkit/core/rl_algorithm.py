@@ -63,7 +63,7 @@ class RLAlgorithm(metaclass=abc.ABCMeta):
         """
         if min_num_steps_before_training is None:
             min_num_steps_before_training = num_steps_per_epoch
-        self.training_env = training_env or pickle.loads(pickle.dumps(env))
+        self.training_env = training_env #or pickle.loads(pickle.dumps(env))
         self.exploration_policy = exploration_policy
         self.num_epochs = num_epochs
         self.num_env_steps_per_epoch = num_steps_per_epoch

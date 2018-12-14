@@ -67,7 +67,7 @@ class ObsDictRelabelingBuffer(ReplayBuffer):
         self.desired_goal_key = desired_goal_key
         self.achieved_goal_key = achieved_goal_key
 
-        self._action_dim = env.action_space.low.size
+        self._action_dim = env.action_space.n #low.size
         self._actions = np.zeros((max_size, self._action_dim))
         # self._terminals[i] = a terminal was received at time i
         self._terminals = np.zeros((max_size, 1), dtype='uint8')
@@ -75,6 +75,7 @@ class ObsDictRelabelingBuffer(ReplayBuffer):
         self._obs = {}
         self._next_obs = {}
         self.ob_spaces = self.env.observation_space.spaces
+
         for key in self.ob_keys_to_save + internal_keys:
             assert key in self.ob_spaces, \
                 "Key not found in the observation space: %s" % key
