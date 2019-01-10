@@ -185,12 +185,15 @@ class ObsDictRelabelingBuffer(ReplayBuffer):
         new_obs_dict = self._batch_obs_dict(indices)
         new_next_obs_dict = self._batch_next_obs_dict(indices)
 
+        # switch to sampling from replay
         if num_env_goals > 0:
-            env_goals = self.env.sample_goals(num_env_goals)
-            env_goals = preprocess_obs_dict(env_goals)
+            #env_goals = self.env.sample_goals(num_env_goals)
+            env_goals = self._next_obs[self.desired_goal_key][self._sample_indices(num_env_goals)]
+            #import pdb; pdb.set_trace()
+            #env_goals = preprocess_obs_dict(env_goals)
             last_env_goal_idx = num_rollout_goals + num_env_goals
             resampled_goals[num_rollout_goals:last_env_goal_idx] = (
-                env_goals[self.desired_goal_key]
+                env_goals
             )
         if num_future_goals > 0:
             future_obs_idxs = []

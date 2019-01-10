@@ -14,7 +14,7 @@ from rlkit.exploration_strategies.ou_strategy import OUStrategy
 from rlkit.pythonplusplus import identity
 from rlkit.envs.vae_wrapper import VAEWrappedEnv
 from rlkit.torch.vae.conv_vae import ConvVAE
-from rlkit.torch.vae.vae_trainer import ConvVAETrainer
+#from rlkit.torch.vae.vae_trainer import ConvVAETrainer
 
 import rlkit.samplers.rollout_functions as rf
 import rlkit.torch.pytorch_util as ptu

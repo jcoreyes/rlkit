@@ -6,6 +6,7 @@ import multiworld.envs.mujoco
 import multiworld.envs.pygame
 import rlkit.samplers.rollout_functions as rf
 import rlkit.torch.pytorch_util as ptu
+from rlkit.envs.minecraft.base import WallBuilder
 from rlkit.exploration_strategies.base import (
     PolicyWrappedWithExplorationStrategy
 )
@@ -18,19 +19,23 @@ from rlkit.torch.networks import FlattenMlp, TanhMlpPolicy, MlpPolicy
 from rlkit.data_management.obs_dict_replay_buffer import (
     ObsDictRelabelingBuffer
 )
-import malmoenv
-from pathlib import Path
 from torch import nn as nn
 
 def her_dqn_experiment_mincraft(variant):
-    # if 'env_id' in variant:
-    #     env = gym.make(variant['env_id'])
-    # else:
-    #     env = variant['env_class'](**variant['env_kwargs'])
-    env = malmoenv.make()
-    xml = Path(variant['mission']).read_text()
-    env.init(xml, variant['port'], server='127.0.0.1',
-             resync=0, role=0)
+    if 'env_id' in variant:
+        env = gym.make(variant['env_id'])
+    else:
+        env = variant['env_class'](**variant['env_kwargs'])
+    env.init(start_minecraft=False, client_pool=[('127.0.0.1', 10000)],
+             step_sleep=0.01,
+             skip_steps=100,
+             retry_sleep=2)
+    # env = malmoenv.make()
+    # xml = Path(variant['mission']).read_text()
+    # env.init(xml, variant['port'], server='127.0.0.1',
+    #          resync=0, role=0)
+    #env = WallBuilder(variant['mission'])
+
     #env.reset()
     observation_key = variant['observation_key']
     desired_goal_key = variant['desired_goal_key']
@@ -48,27 +53,10 @@ def her_dqn_experiment_mincraft(variant):
     obs_dim = env.observation_space.spaces['observation'].low.size
     action_dim = env.action_space.n
     goal_dim = env.observation_space.spaces['desired_goal'].low.size
-    exploration_type = variant['exploration_type']
-    if exploration_type == 'ou':
-        es = OUStrategy(
-            action_space=env.action_space,
-            **variant['es_kwargs']
-        )
-    elif exploration_type == 'gaussian':
-        es = GaussianStrategy(
-            action_space=env.action_space,
-            **variant['es_kwargs'],
-        )
-    elif exploration_type == 'epsilon':
-        es = EpsilonGreedy(
-            action_space=env.action_space,
-            **variant['es_kwargs'],
-        )
-    else:
-        raise Exception("Invalid type: " + exploration_type)
+
     qf1 = FlattenMlp(
         input_size=obs_dim + goal_dim,
-        output_size=1,
+        output_size=action_dim,
         **variant['qf_kwargs']
     )
     # qf2 = FlattenMlp(

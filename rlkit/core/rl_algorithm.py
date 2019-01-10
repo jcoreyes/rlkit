@@ -161,7 +161,7 @@ class RLAlgorithm(metaclass=abc.ABCMeta):
             self._start_epoch(epoch)
             set_to_train_mode(self.training_env)
             for _ in range(self.num_env_steps_per_epoch):
-                observation = self._take_step_in_env(observation)
+                observation, terminal = self._take_step_in_env(observation)
                 gt.stamp('sample')
 
                 self._try_to_train()
@@ -183,14 +183,19 @@ class RLAlgorithm(metaclass=abc.ABCMeta):
             set_to_train_mode(self.training_env)
             # This implementation is rather naive. If you want to (e.g.)
             # parallelize data collection, this would be the place to do it.
-            for _ in range(self.num_env_steps_per_epoch):
-                observation = self._take_step_in_env(observation)
+            for i in range(self.num_env_steps_per_epoch):
+                observation, terminal = self._take_step_in_env(observation)
+
+
             gt.stamp('sample')
 
             self._try_to_train()
             gt.stamp('train')
 
             set_to_eval_mode(self.env)
+            #print(i, terminal)
+            import pdb;
+            pdb.set_trace()
             self._try_to_eval(epoch)
             gt.stamp('eval')
             self._end_epoch(epoch)
@@ -222,7 +227,7 @@ class RLAlgorithm(metaclass=abc.ABCMeta):
             new_observation = self._start_new_rollout()
         else:
             new_observation = next_ob
-        return new_observation
+        return new_observation, terminal
 
     def _try_to_train(self):
         if self._can_train():
