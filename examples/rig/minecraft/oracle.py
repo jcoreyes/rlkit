@@ -7,17 +7,17 @@ if __name__ == "__main__":
     # noinspection PyTypeChecker
     variant = dict(
         algo_kwargs=dict(
-            collection_mode='batch',
+            collection_mode='online',
             num_updates_per_epoch=1000,
             dqn_kwargs=dict(
-                num_epochs=500,
+                num_epochs=5000,
                 num_steps_per_epoch=200,
-                num_steps_per_eval=100,
+                num_steps_per_eval=99,
                 batch_size=128,
-                max_path_length=100,
+                max_path_length=1000,
                 discount=0.99,
                 epsilon=0.2,
-                tau=0.001,
+                tau=0.002,
                 hard_update_period=1000,
                 save_environment=False,
             ),
@@ -28,13 +28,13 @@ if __name__ == "__main__":
         ),
         replay_buffer_kwargs=dict(
             max_size=int(1E6),
-            fraction_goals_rollout_goals=1.0,
+            fraction_goals_rollout_goals=0.0,
             fraction_goals_env_goals=0.0,
-            # fraction_goals_rollout_goals=0.2,
-            # fraction_goals_env_goals=0.2,
-        ),
+            #fraction_goals_rollout_goals=0.2, # sample from rollout
+            #fraction_goals_env_goals=0.2,# sample from replay buffer
+        ),                               # rest of goals are true goal
         qf_kwargs=dict(
-            hidden_sizes=[256, 256, 256],
+            hidden_sizes=[128, 128],
         ),
         version='normal',
         exploration_type='epsilon',

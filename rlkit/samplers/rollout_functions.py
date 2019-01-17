@@ -45,6 +45,7 @@ def multitask_rollout(
     next_observations = []
     path_length = 0
     agent.reset()
+    #import pdb; pdb.set_trace()
     o = env.reset()
     if animated:
         env.render()
@@ -65,6 +66,7 @@ def multitask_rollout(
         agent_infos.append(agent_info)
         env_infos.append(env_info)
         path_length += 1
+        #print('eval', path_length, d)
         if d:
             break
         o = next_o

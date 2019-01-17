@@ -117,6 +117,7 @@ class HER(TorchRLAlgorithm):
             path = self.eval_multitask_rollout()
             paths.append(path)
             n_steps_total += len(path['observations'])
+        assert len(paths) == 1
         return paths
 
     def eval_multitask_rollout(self):

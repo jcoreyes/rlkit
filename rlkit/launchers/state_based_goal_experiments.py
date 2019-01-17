@@ -84,20 +84,20 @@ def her_dqn_experiment_mincraft(variant):
         qf_criterion=nn.MSELoss(),
         **variant['algo_kwargs']
     )
-    if variant.get("save_video", False):
-        rollout_function = rf.create_rollout_function(
-            rf.multitask_rollout,
-            max_path_length=algorithm.max_path_length,
-            observation_key=algorithm.observation_key,
-            desired_goal_key=algorithm.desired_goal_key,
-        )
-        video_func = get_video_save_func(
-            rollout_function,
-            env,
-            #policy,
-            variant,
-        )
-        algorithm.post_epoch_funcs.append(video_func)
+    # if variant.get("save_video", False):
+    #     rollout_function = rf.create_rollout_function(
+    #         rf.multitask_rollout,
+    #         max_path_length=algorithm.max_path_length,
+    #         observation_key=algorithm.observation_key,
+    #         desired_goal_key=algorithm.desired_goal_key,
+    #     )
+    #     video_func = get_video_save_func(
+    #         rollout_function,
+    #         env,
+    #         #policy,
+    #         variant,
+    #     )
+    #     algorithm.post_epoch_funcs.append(video_func)
     algorithm.to(ptu.device)
     algorithm.train()
 

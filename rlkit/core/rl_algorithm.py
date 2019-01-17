@@ -104,6 +104,7 @@ class RLAlgorithm(metaclass=abc.ABCMeta):
                 max_samples=self.num_steps_per_eval + self.max_path_length,
                 max_path_length=self.max_path_length,
             )
+
         self.eval_policy = eval_policy
         self.eval_sampler = eval_sampler
         self.eval_statistics = OrderedDict()
@@ -153,13 +154,13 @@ class RLAlgorithm(metaclass=abc.ABCMeta):
 
     def train_online(self, start_epoch=0):
         self._current_path_builder = PathBuilder()
-        observation = self._start_new_rollout()
         for epoch in gt.timed_for(
                 range(start_epoch, self.num_epochs),
                 save_itrs=True,
         ):
             self._start_epoch(epoch)
             set_to_train_mode(self.training_env)
+            observation = self._start_new_rollout()
             for _ in range(self.num_env_steps_per_epoch):
                 observation, terminal = self._take_step_in_env(observation)
                 gt.stamp('sample')
@@ -174,19 +175,22 @@ class RLAlgorithm(metaclass=abc.ABCMeta):
 
     def train_batch(self, start_epoch):
         self._current_path_builder = PathBuilder()
-        observation = self._start_new_rollout()
+
         for epoch in gt.timed_for(
                 range(start_epoch, self.num_epochs),
                 save_itrs=True,
         ):
+
             self._start_epoch(epoch)
             set_to_train_mode(self.training_env)
+            observation = self._start_new_rollout()
             # This implementation is rather naive. If you want to (e.g.)
             # parallelize data collection, this would be the place to do it.
             for i in range(self.num_env_steps_per_epoch):
                 observation, terminal = self._take_step_in_env(observation)
 
-
+                #print(i, terminal)
+            assert terminal[0] == True
             gt.stamp('sample')
 
             self._try_to_train()
@@ -194,8 +198,6 @@ class RLAlgorithm(metaclass=abc.ABCMeta):
 
             set_to_eval_mode(self.env)
             #print(i, terminal)
-            import pdb;
-            pdb.set_trace()
             self._try_to_eval(epoch)
             gt.stamp('eval')
             self._end_epoch(epoch)
@@ -456,6 +458,7 @@ class RLAlgorithm(metaclass=abc.ABCMeta):
         statistics.update(self.eval_statistics)
 
         logger.log("Collecting samples for evaluation")
+
         if eval_paths:
             test_paths = eval_paths
         else:
