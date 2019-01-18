@@ -14,12 +14,14 @@ from rlkit.exploration_strategies.epsilon_greedy import EpsilonGreedy
 from rlkit.exploration_strategies.gaussian_strategy import GaussianStrategy
 from rlkit.exploration_strategies.ou_strategy import OUStrategy
 from rlkit.launchers.rig_experiments import get_video_save_func
-from rlkit.torch.her.her import HerTd3, HerDQN
+from rlkit.torch.her.her import HerTd3, HerDQN, HerDDQN, DQN
 from rlkit.torch.networks import FlattenMlp, TanhMlpPolicy, MlpPolicy
 from rlkit.data_management.obs_dict_replay_buffer import (
     ObsDictRelabelingBuffer
 )
+from rlkit.torch.conv_networks import CNN
 from torch import nn as nn
+import numpy as np
 
 def her_dqn_experiment_mincraft(variant):
     if 'env_id' in variant:
@@ -39,26 +41,35 @@ def her_dqn_experiment_mincraft(variant):
     #env.reset()
     observation_key = variant['observation_key']
     desired_goal_key = variant['desired_goal_key']
-    variant['algo_kwargs']['her_kwargs']['observation_key'] = observation_key
-    variant['algo_kwargs']['her_kwargs']['desired_goal_key'] = desired_goal_key
+    #variant['algo_kwargs']['her_kwargs']['observation_key'] = observation_key
+    #variant['algo_kwargs']['her_kwargs']['desired_goal_key'] = desired_goal_key
     if variant.get('normalize', False):
         raise NotImplementedError()
 
-    replay_buffer = ObsDictRelabelingBuffer(
-        env=env,
-        observation_key=observation_key,
-        desired_goal_key=desired_goal_key,
-        **variant['replay_buffer_kwargs']
-    )
-    obs_dim = env.observation_space.spaces['observation'].low.size
+    # replay_buffer = ObsDictRelabelingBuffer(
+    #     env=env,
+    #     observation_key=observation_key,
+    #     desired_goal_key=desired_goal_key,
+    #     internal_keys=['agent_pos'],
+    #     **variant['replay_buffer_kwargs']
+    # )
+    obs_shape = env.obs_shape
     action_dim = env.action_space.n
-    goal_dim = env.observation_space.spaces['desired_goal'].low.size
+    #goal_shape = env.observation_space.spaces['desired_goal'].shape
 
-    qf1 = FlattenMlp(
-        input_size=obs_dim + goal_dim,
-        output_size=action_dim,
-        **variant['qf_kwargs']
-    )
+    qf1 = CNN(obs_shape[1], obs_shape[2], obs_shape[0], # + env.voxel_shape[0],
+              output_size=action_dim,
+              kernel_sizes=[3, 3],
+              n_channels=[16, 32],
+              strides=[1, 1],
+              paddings=np.zeros(2, dtype=np.int64),
+              hidden_sizes=(128, 128),
+              )
+    # qf1 = FlattenMlp(
+    #     input_size=obs_dim + goal_dim,
+    #     output_size=action_dim,
+    #     **variant['qf_kwargs']
+    # )
     # qf2 = FlattenMlp(
     #     input_size=obs_dim + action_dim + goal_dim,
     #     output_size=1,
@@ -73,31 +84,18 @@ def her_dqn_experiment_mincraft(variant):
     #     exploration_strategy=es,
     #     policy=policy,
     # )
-    algorithm = HerDQN(
+    algorithm = DQN(
         env,
         training_env=env,
         qf=qf1,
         #qf2=qf2,
         #policy=policy,
         #exploration_policy=exploration_policy,
-        replay_buffer=replay_buffer,
+        #replay_buffer=replay_buffer,
         qf_criterion=nn.MSELoss(),
         **variant['algo_kwargs']
     )
-    # if variant.get("save_video", False):
-    #     rollout_function = rf.create_rollout_function(
-    #         rf.multitask_rollout,
-    #         max_path_length=algorithm.max_path_length,
-    #         observation_key=algorithm.observation_key,
-    #         desired_goal_key=algorithm.desired_goal_key,
-    #     )
-    #     video_func = get_video_save_func(
-    #         rollout_function,
-    #         env,
-    #         #policy,
-    #         variant,
-    #     )
-    #     algorithm.post_epoch_funcs.append(video_func)
+
     algorithm.to(ptu.device)
     algorithm.train()
 

@@ -10,6 +10,7 @@ from rlkit.torch.sac.sac import SoftActorCritic
 from rlkit.torch.sac.twin_sac import TwinSAC
 from rlkit.torch.td3.td3 import TD3
 from rlkit.torch.dqn.dqn import DQN
+from rlkit.torch.dqn.double_dqn import DoubleDQN
 from rlkit.torch.torch_rl_algorithm import TorchRLAlgorithm
 
 
@@ -108,6 +109,7 @@ class HER(TorchRLAlgorithm):
             observation[self.observation_key],
             observation[self.desired_goal_key],
         ))
+
         return self.exploration_policy.get_action(new_obs)
 
     def get_eval_paths(self):
@@ -162,6 +164,21 @@ class HerDQN(HER, DQN):
             self.replay_buffer, ObsDictRelabelingBuffer
         )
 
+class HerDDQN(HER, DoubleDQN):
+    def __init__(
+            self,
+            *args,
+            her_kwargs,
+            dqn_kwargs,
+            **kwargs
+    ):
+        HER.__init__(self, **her_kwargs)
+        DoubleDQN.__init__(self, *args, **kwargs, **dqn_kwargs)
+        assert isinstance(
+            self.replay_buffer, RelabelingReplayBuffer
+        ) or isinstance(
+            self.replay_buffer, ObsDictRelabelingBuffer
+        )
 
 class HerSac(HER, SoftActorCritic):
     def __init__(
