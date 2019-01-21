@@ -1,5 +1,5 @@
 import numpy as np
-from gym.spaces import Dict
+from gym.spaces import Dict, Discrete
 
 from rlkit.data_management.replay_buffer import ReplayBuffer
 
@@ -112,7 +112,11 @@ class ObsDictRelabelingBuffer(ReplayBuffer):
         terminals = path["terminals"]
         path_len = len(rewards)
 
-        actions = flatten_n(actions)
+        if isinstance(self.env.action_space, Discrete):
+            actions = np.eye(self._action_dim)[actions]
+        else:
+            actions = flatten_n(actions)
+
         obs = flatten_dict(obs, self.ob_keys_to_save + self.internal_keys)
         next_obs = flatten_dict(next_obs,
                                 self.ob_keys_to_save + self.internal_keys)
@@ -171,6 +175,8 @@ class ObsDictRelabelingBuffer(ReplayBuffer):
                 )
         self._top = (self._top + path_len) % self.max_size
         self._size = min(self._size + path_len, self.max_size)
+
+        #import pdb; pdb.set_trace()
 
     def _sample_indices(self, batch_size):
         return np.random.randint(0, self._size, batch_size)
@@ -237,6 +243,7 @@ class ObsDictRelabelingBuffer(ReplayBuffer):
                     None
                 )
         new_rewards = new_rewards.reshape(-1, 1)
+
 
         new_obs = new_obs_dict[self.observation_key]
         new_next_obs = new_next_obs_dict[self.observation_key]

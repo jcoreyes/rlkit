@@ -1,5 +1,5 @@
 from rlkit.launchers.launcher_util import run_experiment
-from rlkit.launchers.state_based_goal_experiments import her_dqn_experiment_mincraft
+from rlkit.launchers.state_based_goal_experiments import dqn_experiment_mincraft
 from torch.nn import functional as F
 import gym_minecraft
 
@@ -15,7 +15,7 @@ if __name__ == "__main__":
             batch_size=128,
             max_path_length=1000,
             discount=0.99,
-            epsilon=0.05,
+            epsilon=0.3,
             tau=0.002,
             hard_update_period=1000,
             save_environment=False,
@@ -32,8 +32,8 @@ if __name__ == "__main__":
         # ),
         version='normal',
         exploration_type='epsilon',
-        observation_key='state_observation',
-        desired_goal_key='desired_goal',
+        #observation_key='state_observation',
+        #desired_goal_key='desired_goal',
         init_camera=None,
         do_state_exp=True,
 
@@ -51,8 +51,8 @@ if __name__ == "__main__":
             show_goal=False,
         ),
 
-        algorithm='HerDQN',
-        env_id='MinecraftWallNavigation-v0'
+        algorithm='DQN',
+        env_id='MinecraftNavigation-v0'
     )
 
     n_seeds = 1
@@ -61,7 +61,7 @@ if __name__ == "__main__":
 
     for _ in range(n_seeds):
         run_experiment(
-            her_dqn_experiment_mincraft,
+            dqn_experiment_mincraft,
             exp_prefix=exp_prefix,
             mode=mode,
             variant=variant,

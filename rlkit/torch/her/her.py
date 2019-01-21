@@ -70,6 +70,7 @@ class HER(TorchRLAlgorithm):
             env_infos=env_info,
         )
 
+
     def _handle_path(self, path):
         self._n_rollouts_total += 1
         self.replay_buffer.add_path(path)
@@ -84,6 +85,7 @@ class HER(TorchRLAlgorithm):
             obs,
             goals
         ), dim=1)
+
         batch['next_observations'] = torch.cat((
             next_obs,
             goals
@@ -105,11 +107,11 @@ class HER(TorchRLAlgorithm):
         :return:
         """
         self.exploration_policy.set_num_steps_total(self._n_env_steps_total)
-        new_obs = np.hstack((
-            observation[self.observation_key],
-            observation[self.desired_goal_key],
-        ))
-
+        # new_obs = np.hstack((
+        #     observation[self.observation_key],
+        #     observation[self.desired_goal_key],
+        # ))
+        new_obs = observation[self.observation_key]
         return self.exploration_policy.get_action(new_obs)
 
     def get_eval_paths(self):

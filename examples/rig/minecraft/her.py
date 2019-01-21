@@ -16,7 +16,7 @@ if __name__ == "__main__":
                 batch_size=128,
                 max_path_length=1000,
                 discount=0.99,
-                epsilon=0.05,
+                epsilon=0.2,
                 tau=0.002,
                 hard_update_period=1000,
                 save_environment=False,
@@ -28,8 +28,8 @@ if __name__ == "__main__":
         ),
         replay_buffer_kwargs=dict(
             max_size=int(1E6),
-            fraction_goals_rollout_goals=1.0,
-            fraction_goals_env_goals=0.0,
+            fraction_goals_rollout_goals=0.0,
+            fraction_goals_env_goals=1.0,
             #fraction_goals_rollout_goals=0.2, # sample from rollout
             #fraction_goals_env_goals=0.2,# sample from replay buffer
         ),                               # rest of goals are true goal
