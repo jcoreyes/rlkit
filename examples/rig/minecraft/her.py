@@ -11,12 +11,12 @@ if __name__ == "__main__":
             num_updates_per_epoch=1000,
             dqn_kwargs=dict(
                 num_epochs=5000,
-                num_steps_per_epoch=400,
-                num_steps_per_eval=199,
+                num_steps_per_epoch=200,
+                num_steps_per_eval=99,
                 batch_size=128,
                 max_path_length=1000,
                 discount=0.99,
-                epsilon=0.2,
+                epsilon=0.05,
                 tau=0.002,
                 hard_update_period=1000,
                 save_environment=False,
@@ -58,7 +58,7 @@ if __name__ == "__main__":
         ),
 
         algorithm='HerDQN',
-        env_id='MinecraftWallBuilder-v0'
+        env_id='MinecraftBridgeBuilder-v0'
     )
 
     n_seeds = 1

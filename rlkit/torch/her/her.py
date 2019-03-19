@@ -107,11 +107,11 @@ class HER(TorchRLAlgorithm):
         :return:
         """
         self.exploration_policy.set_num_steps_total(self._n_env_steps_total)
-        # new_obs = np.hstack((
-        #     observation[self.observation_key],
-        #     observation[self.desired_goal_key],
-        # ))
-        new_obs = observation[self.observation_key]
+        new_obs = np.hstack((
+            observation[self.observation_key],
+            observation[self.desired_goal_key],
+        ))
+        #new_obs = observation[self.observation_key]
         return self.exploration_policy.get_action(new_obs)
 
     def get_eval_paths(self):
@@ -121,7 +121,7 @@ class HER(TorchRLAlgorithm):
             path = self.eval_multitask_rollout()
             paths.append(path)
             n_steps_total += len(path['observations'])
-        assert len(paths) == 1
+        #assert len(paths) == 1
         return paths
 
     def eval_multitask_rollout(self):

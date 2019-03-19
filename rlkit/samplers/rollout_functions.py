@@ -53,8 +53,8 @@ def multitask_rollout(
     while path_length < max_path_length:
         full_observations.append(o)
         o = o[observation_key]
-        #new_obs = np.hstack((o, goal))
-        new_obs = o
+        new_obs = np.hstack((o, goal))
+        #new_obs = o
         a, agent_info = agent.get_action(new_obs, **get_action_kwargs)
         next_o, r, d, env_info = env.step(a)
         if animated:
