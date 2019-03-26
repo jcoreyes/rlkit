@@ -34,15 +34,29 @@ class EnvContainer:
 
         self.states = states
         self.states_np = np.array(self.states)
+
+        onehot = np.concatenate([np.eye(len(self.states)), np.repeat(np.array([self.room_wh]), len(self.states), 0)], -1)
+        shuffled_states = [states[i] for i in np.random.choice(np.arange(0, len(states)),
+                                                               size=len(self.states),
+                                                               replace=False)]
+        self.states_to_onehot = {s:onehot[i] for i, s in enumerate(shuffled_states)}
+
+        self.states_onehot = np.stack([self.states_to_onehot[x] for x in self.states], 0)
+
         self.state_to_idx = state_to_idx
 
         transitions = []
+        transitions_onehot = []
         for i, state in enumerate(states):
             next_states = self._gen_transitions(state)
             for ns in next_states:
                 transitions.append(list(state) + list(ns) + list(self.room_wh))
+                transitions_onehot.append(np.concatenate([self.states_to_onehot[state],
+                                                          self.states_to_onehot[tuple(ns.tolist() + list(self.room_wh))],
+                                                         ]))
         self.transitions = transitions
         self.transitions_np = np.array(self.transitions)
+        self.transitions_onehot = np.array(transitions_onehot)
 
     def _gen_transitions(self, state):
 
@@ -63,26 +77,28 @@ class EnvContainer:
         #X, Y = np.meshgrid(X, Y)
         Z = np.zeros((self.width, self.height))
         for state in self.states:
-            dist = get_numpy(encoder(from_numpy(np.array(state)).unsqueeze(0)))
+            dist = get_numpy(encoder(from_numpy(self.states_to_onehot[state])).unsqueeze(0))
             Z[state[:2]] = np.argmax(dist) + 1
         return Z
 
     def sample_states(self, bs):
-        return self.states_np[np.random.randint(0, len(self.states), bs), :]
+        return np.stack([self.states_onehot[i, :] for i in np.random.randint(0, len(self.states), bs)], 0)
+        #self.states_onehot[np.random.randint(0, len(self.states), bs
 
     def all_states(self):
-        return np.concatenate([self.states_np, np.repeat(np.array([self.room_wh]), len(self.states), 1)])
+        #return np.concatenate([self.states_onehot, np.repeat(np.array([self.room_wh]), len(self.states), 1)])
+        return self.states_onehot
 
 class AbstractMDPsContrastive:
     def __init__(self, envs):
         self.envs = [EnvContainer(env) for env in envs]
 
         self.abstract_dim = 4
-        self.state_dim = 4
+        self.state_dim = len(self.envs[0].states) + 2
         self.states = []
         self.state_to_idx = None
 
-        self.encoder = Mlp((64, 64, 64), output_size=self.abstract_dim, input_size=self.state_dim,
+        self.encoder = Mlp((128, 128, 128), output_size=self.abstract_dim, input_size=self.state_dim,
                            output_activation=F.softmax, layer_norm=True)
         self.transitions = nn.Parameter(torch.zeros((self.abstract_dim, self.abstract_dim)))
 
@@ -90,19 +106,9 @@ class AbstractMDPsContrastive:
 
     def train(self, max_epochs=100):
 
-        data_lst = []
-        for i, env in enumerate(self.envs):
-            d = np.array(env.transitions)
-            d = np.concatenate([d, np.zeros((d.shape[0], 1)) + i], 1)
-            data_lst.append(d)
-
-        all_data = from_numpy(np.concatenate(data_lst, 0))
-
-        dataset = data.TensorDataset(all_data)
-        dataloader = data.DataLoader(dataset, batch_size=32, shuffle=True)
 
         for epoch in range(1, max_epochs + 1):
-            stats = self.train_epoch(dataloader, epoch)
+            stats = self.train_epoch(epoch)
 
             print(stats)
 
@@ -113,9 +119,10 @@ class AbstractMDPsContrastive:
         return -(dist * torch.log(dist + 1e-8)).sum(1)
 
     def compute_abstract_t(self, env):
-        trans = env.transitions_np
-        s1 = trans[:, :4]
-        s2 = trans[:, 4:]
+        trans = env.transitions_onehot
+        #import pdb; pdb.set_trace()
+        s1 = trans[:, :self.state_dim]
+        s2 = trans[:, self.state_dim:]
         y1 = self.encoder(from_numpy(s1))
         y2 = self.encoder(from_numpy(s2))
         y3 = self.encoder(from_numpy(env.sample_states(s1.shape[0])))
@@ -129,7 +136,7 @@ class AbstractMDPsContrastive:
         return a_t, y1, y2, y3
 
 
-    def train_epoch(self, dataloader, epoch):
+    def train_epoch(self, epoch):
         stats = OrderedDict([('Loss', 0),
                       ('Converge', 0),
                       ('Diverge', 0),
@@ -151,10 +158,10 @@ class AbstractMDPsContrastive:
         bs = y1.shape[0]
         l1 = self.kl(y1, y2)
         l2 = self.kl(y2, y1)
-        l3 = (-self.kl(y1, y3) - self.kl(y2, y3)) * 30
+        l3 = (-self.kl(y1, y3) - self.kl(y3, y1)) * 20
         #l4 = -self.kl(y3, y1)
-        l5 = -self.entropy(y1)
-        l6 = sum(dev) / len(dev)
+        l5 = -self.entropy(y1) * 1
+        l6 = sum(dev) / len(dev) * 0
         #import pdb; pdb.set_trace()
         loss = (l1 + l2) + l3  + l5
         #loss = l5
@@ -170,6 +177,8 @@ class AbstractMDPsContrastive:
         stats['Entropy'] += (l5.sum() / bs).item()
         stats['Dev'] += l6.item()
 
+        self.y1 = y1
+
         return stats
 
     def gen_plot(self):
@@ -179,7 +188,7 @@ class AbstractMDPsContrastive:
 
         plt.imshow(plots)
         plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/fig1.png')
-        #plt.show()
+        plt.show()
 
 
 if __name__ == '__main__':
@@ -192,5 +201,7 @@ if __name__ == '__main__':
             ]
     a = AbstractMDPsContrastive(envs)
     a.train(max_epochs=200)
+    print(a.y1)
     a.gen_plot()
+
 
