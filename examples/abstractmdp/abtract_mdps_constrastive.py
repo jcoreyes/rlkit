@@ -15,6 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils import data
+from collections import OrderedDict
 
 
 class EnvContainer:
@@ -111,64 +112,64 @@ class AbstractMDPsContrastive:
     def entropy(self, dist):
         return -(dist * torch.log(dist + 1e-8)).sum(1)
 
-    def train_epoch(self, dataloader, epoch):
-        stats = dict([('Loss', 0)])
-
-        # empirical transitions
-        e_t = np.zeros((self.abstract_dim, self.abstract_dim))
-
-        all_t = np.concatenate([env.transitions_np for env in self.envs], 0)
-        s1 = all_t[:, :4]
-        s2 = all_t[:, 4:]
+    def compute_abstract_t(self, env):
+        trans = env.transitions_np
+        s1 = trans[:, :4]
+        s2 = trans[:, 4:]
         y1 = self.encoder(from_numpy(s1))
         y2 = self.encoder(from_numpy(s2))
-        a1 = y1.max(-1)[1]
-        a2 = y2.max(-1)[1]
+        y3 = self.encoder(from_numpy(env.sample_states(s1.shape[0])))
+
+        a_t = from_numpy(np.zeros((self.abstract_dim, self.abstract_dim)))
+        for i in range(self.abstract_dim):
+            for j in range(self.abstract_dim):
+                a_t[i, j] += (y1[:, i] * y2[:, j]).sum(0)
+
+        a_t = a_t / a_t.sum(1)
+        return a_t, y1, y2, y3
 
 
-        for i in range(a1.shape[0]):
-            e_t[a1[i], a2[i]] += 1
-        e_t = e_t / e_t.sum(0)
-        e_t[e_t == np.nan] = 0
+    def train_epoch(self, dataloader, epoch):
+        stats = OrderedDict([('Loss', 0),
+                      ('Converge', 0),
+                      ('Diverge', 0),
+                      ('Entropy', 0),
+                      ('Dev', 0)
+                      ])
 
-        import pdb; pdb.set_trace()
+        data = [self.compute_abstract_t(env) for env in self.envs]
+        abstract_t = [x[0] for x in data]
+        y1 = torch.cat([x[1] for x in data], 0)
+        y2 = torch.cat([x[2] for x in data], 0)
+        y3 = torch.cat([x[3] for x in data], 0)
 
+        mean_t = sum(abstract_t) / len(abstract_t)
+        dev = [torch.pow(x[0] - mean_t, 2).mean() for x in abstract_t]
 
-        for batch_idx, data_batch in enumerate(dataloader):
-            data_batch = data_batch[0]
-            bs = data_batch.shape[0]
-            #mdp_info = data_batch[:, -3:-1]
-            mdp_idx = get_numpy(data_batch[:, -1])
+        #import pdb; pdb.set_trace()
+        #import pdb; pdb.set_trace()
+        bs = y1.shape[0]
+        l1 = self.kl(y1, y2)
+        l2 = self.kl(y2, y1)
+        l3 = (-self.kl(y1, y3) - self.kl(y2, y3)) * 30
+        #l4 = -self.kl(y3, y1)
+        l5 = -self.entropy(y1)
+        l6 = sum(dev) / len(dev)
+        #import pdb; pdb.set_trace()
+        loss = (l1 + l2) + l3  + l5
+        #loss = l5
+        loss = loss.sum() / bs + l6
+        #import pdb; pdb.set_trace()
+        loss.backward()
+        nn.utils.clip_grad_norm(self.encoder.parameters(), 5.0)
+        self.optimizer.step()
 
-            s1 = data_batch[:, :4]
-            s2 = data_batch[:, 4:8]
-            self.optimizer.zero_grad()
+        stats['Loss'] += loss.item()
+        stats['Converge'] += ((l1 + l2).sum() / bs ).item()
+        stats['Diverge'] += (l3.sum() / bs).item()
+        stats['Entropy'] += (l5.sum() / bs).item()
+        stats['Dev'] += l6.item()
 
-
-            s3 = np.concatenate([env.sample_states(bs)[mdp_idx==i, :] for i, env in enumerate(self.envs)], 0)
-            s3 = from_numpy(s3)
-            #import pdb; pdb.set_trace()
-            #s3 = torch.cat([s3, mdp_info], -1)
-            #s3 = np.array([self.states[x] for x in np.random.randint(0, len(self.states), bs)])
-
-            y1 = self.encoder(s1)
-            y2 = self.encoder(s2)
-            y3 = self.encoder(s3)
-
-            l1 = self.kl(y1, y2)
-            l2 = self.kl(y2, y1)
-            l3 = -self.kl(y1, y3)
-            #l4 = -self.kl(y3, y1)
-            l5 = -self.entropy(y1)
-
-            loss = (l1 + l2) + 0.8*l3 +  0.5*l5
-            loss = loss.sum() / bs
-            loss.backward()
-            nn.utils.clip_grad_norm(self.encoder.parameters(), 5.0)
-            self.optimizer.step()
-
-            stats['Loss'] += loss.item()
-        stats['Loss'] /= (batch_idx + 1)
         return stats
 
     def gen_plot(self):
@@ -177,7 +178,8 @@ class AbstractMDPsContrastive:
         plots = np.concatenate(plots, 1)
 
         plt.imshow(plots)
-        plt.show()
+        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/fig1.png')
+        #plt.show()
 
 
 if __name__ == '__main__':
@@ -185,10 +187,11 @@ if __name__ == '__main__':
     # vals, vectors= laplacian.generate_laplacian()
     # laplacian.gen_plot(vectors[:, 1])
     envs = [FourRoomsModEnv(gridsize=15, room_wh=(6, 6)),
-            FourRoomsModEnv(gridsize=15, room_wh=(7, 7))
+            FourRoomsModEnv(gridsize=15, room_wh=(7, 7)),
+            FourRoomsModEnv(gridsize=15, room_wh=(6, 7)),
             ]
     a = AbstractMDPsContrastive(envs)
-    a.train(max_epochs=10)
+    a.train(max_epochs=200)
     a.gen_plot()
 
 
