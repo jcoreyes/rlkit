@@ -9,7 +9,7 @@ from mpl_toolkits.mplot3d import axes3d, Axes3D
 from matplotlib import cm
 import matplotlib.pyplot as plt
 from rlkit.torch.networks import Mlp
-from rlkit.torch.pytorch_util import from_numpy, get_numpy
+from rlkit.torch.pytorch_util import from_numpy, get_numpy, wei
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -28,6 +28,7 @@ class AbstractMDPContrastive:
 
         self.encoder = Mlp((64, 64, 64), output_size=self.abstract_dim, input_size=self.state_dim,
                            output_activation=F.softmax, layer_norm=True)
+
 
         states = []
         for j in range(self.env.grid.height):

@@ -77,6 +77,7 @@ class AbstractMDPsContrastive:
     def __init__(self, envs):
         self.envs = [EnvContainer(env) for env in envs]
 
+        self.n_abstract_mdps = 2
         self.abstract_dim = 4
         self.state_dim = 4
         self.states = []
@@ -101,8 +102,10 @@ class AbstractMDPsContrastive:
         dataset = data.TensorDataset(all_data)
         dataloader = data.DataLoader(dataset, batch_size=32, shuffle=True)
 
+        mixture = from_numpy(np.ones((len(self.envs), self.n_abstract_mdps)) / self.n_abstract_mdps)
+        all_abstract_t = from_numpy(np.ones((self.n_abstract_mdps, self.abstract_dim, self.abstract_dim)) / self.abstract_dim)
         for epoch in range(1, max_epochs + 1):
-            stats = self.train_epoch(dataloader, epoch)
+            stats = self.train_epoch(dataloader, epoch, mixture, all_abstract_t)
 
             print(stats)
 
@@ -114,8 +117,8 @@ class AbstractMDPsContrastive:
 
     def compute_abstract_t(self, env):
         trans = env.transitions_np
-        s1 = trans[:, :4]
-        s2 = trans[:, 4:]
+        s1 = trans[:, :self.state_dim]
+        s2 = trans[:, self.state_dim:]
         y1 = self.encoder(from_numpy(s1))
         y2 = self.encoder(from_numpy(s2))
         y3 = self.encoder(from_numpy(env.sample_states(s1.shape[0])))
@@ -133,7 +136,7 @@ class AbstractMDPsContrastive:
         return n_a_t, y1, y2, y3
 
 
-    def train_epoch(self, dataloader, epoch):
+    def train_epoch(self, dataloader, epoch, mixture, all_abstract_t):
         stats = OrderedDict([('Loss', 0),
                       ('Converge', 0),
                       ('Diverge', 0),
@@ -144,6 +147,19 @@ class AbstractMDPsContrastive:
 
         data = [self.compute_abstract_t(env) for env in self.envs]
         abstract_t = [x[0] for x in data]
+
+        for i in range(self.n_abstract_mdps):
+            all_abstract_t[i, :, :] = sum([mixture[j, i] * abstract_t[j] for j in range(len(self.envs))])
+
+        # compute likelihood of mdp's abstract transition under all current abstract transitions
+        new_mixture = from_numpy(np.zeros(mixture.shape))
+        for j in range(len(abstract_t)):
+            for i in range(self.n_abstract_mdps):
+                a = abstract_t[j]
+                dev = torch.pow(all_abstract_t[i, :, :] - a, 2).mean()
+                new_mixture[j, i] = dev
+        new_mixture = new_mixture / new_mixture.sum(1, keepdim=True)
+
         y1 = torch.cat([x[1] for x in data], 0)
         y2 = torch.cat([x[2] for x in data], 0)
         y3 = torch.cat([x[3] for x in data], 0)
@@ -153,9 +169,9 @@ class AbstractMDPsContrastive:
         y2 = y2[sample]
         y3 = y3[sample]
 
-        mean_t = sum(abstract_t) / len(abstract_t)
-        self.mean_t = mean_t
-        dev = [torch.pow(x[0] - mean_t, 2).mean() for x in abstract_t]
+        #mean_t = sum(abstract_t) / len(abstract_t)
+        #self.mean_t = mean_t
+        #dev = [torch.pow(x[0] - mean_t, 2).mean() for x in abstract_t]
 
 
         #sample = from_numpy(np.random.randint(0, y1.shape[0], 32)).long()
@@ -209,7 +225,7 @@ if __name__ == '__main__':
             ]
     a = AbstractMDPsContrastive(envs)
     a.train(max_epochs=200)
-    print(a.mean_t)
+    #print(a.mean_t)
     print(a.spread)
     a.gen_plot()
 

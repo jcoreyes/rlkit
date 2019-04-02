@@ -39,7 +39,13 @@ def fanin_init_weights_like(tensor):
     new_tensor.uniform_(-bound, bound)
     return new_tensor
 
-
+def init_weights(m):
+    if type(m) == torch.nn.Linear:
+        torch.nn.init.kaiming_uniform(m.weight)
+        m.bias.data.fill_(0.01)
+    elif type(m) == torch.nn.Conv2d:
+        torch.nn.init.kaiming_uniform(m.weight)
+        m.bias.data.fill_(0.01)
 """
 GPU wrappers
 """
