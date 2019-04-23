@@ -93,10 +93,10 @@ class AbstractMDPsContrastive:
 
         # Initialize A and B
         n_states = len(self.envs[0].states)
-        A = np.random.uniform(size=(self.abstract_dim, self.abstract_dim))  # P(q_t+1=i | q_t=j)
-        #A = np.ones((self.abstract_dim, self.abstract_dim))
-        #for i in range(self.abstract_dim):
-        #    A[i, i] += 11
+        A = np.random.uniform(size=(self.abstract_dim, self.abstract_dim)) # P(q_t+1=i | q_t=j)
+        # A = np.ones((self.abstract_dim, self.abstract_dim))
+        for i in range(self.abstract_dim):
+             A[i, i] += 10
         A /= A.sum(1, keepdims=True)
 
         B = np.ones((n_states, self.abstract_dim)) / n_states # P(o_t|q_t=i)
@@ -108,7 +108,8 @@ class AbstractMDPsContrastive:
 
         alpha = np.zeros((num_seq, 2, self.abstract_dim))
         beta = np.zeros((num_seq, 2, self.abstract_dim))
-        pi = np.ones(self.abstract_dim) / self.abstract_dim
+        pi = np.ones(self.abstract_dim) / 4
+        prev_likelihood = 0
 
         for epoch in range(1, max_epochs + 1):
             # E step
@@ -133,13 +134,11 @@ class AbstractMDPsContrastive:
             likelihood = gamma.sum(-1)[:, 0].mean()
             print(likelihood)
             # normalize gamma
-            gamma = gamma / gamma.sum(-1, keepdims=True)
+            gamma = gamma / gamma.sum(-1, keepdims=True) # P(q_t=j|O, lambda)
 
 
 
-            zeta = np.zeros((num_seq, self.abstract_dim, self.abstract_dim))
-            #for i in range(self.abstract_dim):
-            #    zeta[:, 0, i, :] = alpha[:, 0, i].reshape((num_seq, 1)) * A[i, :] * B[O[:, 1], :] * beta[:, 1, :] / (alpha[:, 0, :] * beta[:, 0, :]).sum(keepdims=True)
+            zeta = np.zeros((num_seq, self.abstract_dim, self.abstract_dim)) # P(q_t=i, q_t+1=j|O, lambda)
             norm = (alpha[:, 0, :] * beta[:, 0, :]).sum(-1)
             for i in range(self.abstract_dim):
                 for j in range(self.abstract_dim):
@@ -153,9 +152,8 @@ class AbstractMDPsContrastive:
             for i in range(self.abstract_dim):
                 for j in range(self.abstract_dim):
                     A[i, j] = zeta[:, i, j].sum() / zeta[:, i, :].sum()
-                    #A[i, j] = (zeta[:, 0, i, j] / zeta[:, 0, i, :].sum(-1)).mean()
 
-            #import pdb; pdb.set_trace()
+
             norm = gamma.sum(1)
             for k in range(n_states):
                 mask = O == k
@@ -168,6 +166,9 @@ class AbstractMDPsContrastive:
                 #B[k, :] = tmp.sum(0)
             #import pdb; pdb.set_trace()
             #B /= B.sum(1, keepdims=True)
+            if likelihood == prev_likelihood and likelihood > 0.5:
+                break
+            prev_likelihood = likelihood
 
             #print(B[:5])
         #import pdb; pdb.set_trace()
