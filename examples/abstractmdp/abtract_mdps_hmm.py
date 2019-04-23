@@ -23,7 +23,7 @@ class EnvContainer:
         self.env = env
         self.width = self.env.grid.height
         self.height = self.env.grid.height
-        self.room_wh = self.env.room_wh
+        #self.room_wh = self.env.room_wh
 
         states = []
         for j in range(self.env.grid.height):
@@ -47,7 +47,7 @@ class EnvContainer:
     def _gen_transitions(self, state):
 
         actions = np.array([[1, 0], [-1, 0], [0, 1], [0, -1]])
-        next_states = []
+        next_states = [np.array(state)]
         for action in actions:
             ns = np.array(state)[:2] + action
             if ns[0] >= 0 and ns[1] >= 0 and ns[0] < self.width and ns[1] < self.height and \
@@ -93,13 +93,14 @@ class AbstractMDPsContrastive:
 
         # Initialize A and B
         n_states = len(self.envs[0].states)
-        A = np.ones((self.abstract_dim, self.abstract_dim))
-        for i in range(self.abstract_dim):
-            A[i, i] += 10
+        A = np.random.uniform(size=(self.abstract_dim, self.abstract_dim))  # P(q_t+1=i | q_t=j)
+        #A = np.ones((self.abstract_dim, self.abstract_dim))
+        #for i in range(self.abstract_dim):
+        #    A[i, i] += 11
         A /= A.sum(1, keepdims=True)
 
-        B = np.ones((n_states, self.abstract_dim)) / n_states
-        #B = np.random.uniform(size=(n_states, self.abstract_dim))
+        B = np.ones((n_states, self.abstract_dim)) / n_states # P(o_t|q_t=i)
+        #B = np.random.uniform(size=(n_states, self.abstract_dim)) + 100
         B /= B.sum(0, keepdims=True)
         O = np.array(self.envs[0].transitions)
 
@@ -107,7 +108,7 @@ class AbstractMDPsContrastive:
 
         alpha = np.zeros((num_seq, 2, self.abstract_dim))
         beta = np.zeros((num_seq, 2, self.abstract_dim))
-        pi = np.ones(self.abstract_dim) / 4
+        pi = np.ones(self.abstract_dim) / self.abstract_dim
 
         for epoch in range(1, max_epochs + 1):
             # E step
@@ -128,8 +129,13 @@ class AbstractMDPsContrastive:
             beta /= beta.sum(-1, keepdims=True)
 
             gamma = alpha * beta
+
+            likelihood = gamma.sum(-1)[:, 0].mean()
+            print(likelihood)
             # normalize gamma
             gamma = gamma / gamma.sum(-1, keepdims=True)
+
+
 
             zeta = np.zeros((num_seq, self.abstract_dim, self.abstract_dim))
             #for i in range(self.abstract_dim):
@@ -139,6 +145,7 @@ class AbstractMDPsContrastive:
                 for j in range(self.abstract_dim):
                     zeta[:, i, j] = alpha[:, 0, i] * A[i, j] * B[O[:, 1], j] * beta[:, 1, j] / norm
             #import pdb; pdb.set_trace()
+
 
             #zeta /= zeta.sum(-1, keepdims=True)
 
@@ -169,7 +176,7 @@ class AbstractMDPsContrastive:
         print(A)
         print(B[:5])
         self.encoder = B
-
+        return likelihood
 
     def kl(self, dist1, dist2):
         return (dist1 * (torch.log(dist1 + 1e-8) - torch.log(dist2 + 1e-8))).sum(1)
@@ -178,14 +185,14 @@ class AbstractMDPsContrastive:
         return -(dist * torch.log(dist + 1e-8)).sum(-1)
 
 
-    def gen_plot(self):
+    def gen_plot(self, likelihood, i):
         plots = [env.gen_plot(self.encoder) for env in self.envs]
 
         plots = np.concatenate(plots, 1)
 
         plt.imshow(plots)
-        #plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/fig1.png')
-        plt.show()
+        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/figures/fig_%.6f_%d.png' % (likelihood, i))
+        #plt.show()
 
 
 if __name__ == '__main__':
@@ -194,12 +201,16 @@ if __name__ == '__main__':
     # laplacian.gen_plot(vectors[:, 1])
     envs = [#FourRoomsModEnv(gridsize=15, room_wh=(6, 6)),
             FourRoomsModEnv(gridsize=15, room_wh=(7, 7)),
+            #BridgeEnv(),
             #FourRoomsModEnv(gridsize=15, room_wh=(7, 7), close_doors=["west"])
             #FourRoomsModEnv(gridsize=15, room_wh=(6, 7)),
             ]
-    a = AbstractMDPsContrastive(envs)
-    a.train(max_epochs=200)
-    #print(a.mean_t)
-    #print(a.y1)
-    a.gen_plot()
+    tries = 100
+
+    for i in range(tries):
+        a = AbstractMDPsContrastive(envs)
+        likelihood = a.train(max_epochs=1000)
+        #print(a.mean_t)
+        #print(a.y1)
+        a.gen_plot(likelihood, i)
 

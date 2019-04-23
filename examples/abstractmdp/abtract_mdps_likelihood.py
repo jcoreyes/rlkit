@@ -144,10 +144,11 @@ class AbstractMDPsContrastive:
         mixture = from_numpy(np.ones((len(self.envs), self.n_abstract_mdps)) / self.n_abstract_mdps)
         all_abstract_t = from_numpy(np.ones((self.n_abstract_mdps, self.abstract_dim, self.abstract_dim)) / self.abstract_dim)
         for epoch in range(1, max_epochs + 1):
-            stats = self.train_epoch(dataloader, epoch, mixture, all_abstract_t)
+            stats, abstract_t = self.train_epoch(dataloader, epoch, mixture, all_abstract_t)
             if stats['Loss'] < 221.12:
                break
             print(stats)
+        print(abstract_t)
 
     def kl(self, dist1, dist2):
         return (dist1 * (torch.log(dist1 + 1e-8) - torch.log(dist2 + 1e-8))).sum(1)
@@ -217,7 +218,7 @@ class AbstractMDPsContrastive:
         #stats['Entropy2'] += entropy2.item()
         #stats['       Dev'] += l6.item()
 
-        return stats
+        return stats, abstract_t[0]
 
     def gen_plot(self):
         plots = [env.gen_plot(self.encoder) for env in self.envs]
@@ -240,8 +241,6 @@ if __name__ == '__main__':
             ]
     a = AbstractMDPsContrastive(envs)
     a.train(max_epochs=300)
-    #print(a.mean_t)
-    #print(a.y1)
-    #print(a.a_t)
+
     a.gen_plot()
 

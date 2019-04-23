@@ -58,7 +58,7 @@ if __name__ == "__main__":
         ),
 
         algorithm='HerDQN',
-        env_id='MinecraftBridgeBuilder-v0'
+        env_id='MinecraftWallBuilder-v0'
     )
 
     n_seeds = 1
