@@ -4,7 +4,7 @@ import numpy as np
 import gym
 import numpy as np
 import gym_minigrid
-from gym_minigrid.envs.fourrooms import FourRoomsModEnv, BridgeEnv, WallEnv
+from gym_minigrid.envs.fourrooms import FourRoomsModEnv, BridgeEnv, WallEnv, TwoRoomsModEnv
 from mpl_toolkits.mplot3d import axes3d, Axes3D
 from matplotlib import cm
 import matplotlib.pyplot as plt
@@ -78,7 +78,7 @@ class AbstractMDPsContrastive:
         self.envs = [EnvContainer(env) for env in envs]
 
         self.n_abstract_mdps = 2
-        self.abstract_dim = 4
+        self.abstract_dim = 3
         self.state_dim = 4
         self.states = []
         self.state_to_idx = None
@@ -88,6 +88,7 @@ class AbstractMDPsContrastive:
         self.transitions = nn.Parameter(torch.zeros((self.abstract_dim, self.abstract_dim)))
 
         self.optimizer = optim.Adam(self.encoder.parameters())
+
 
     def train(self, max_epochs=100):
 
@@ -106,9 +107,9 @@ class AbstractMDPsContrastive:
 
         num_seq = O.shape[0]
 
-        alpha = np.zeros((num_seq, 2, self.abstract_dim))
-        beta = np.zeros((num_seq, 2, self.abstract_dim))
-        pi = np.ones(self.abstract_dim) / 4
+        alpha = np.zeros((num_seq, 2, self.abstract_dim)) # P(o_1..o_t, q_t=i | lambda)
+        beta = np.zeros((num_seq, 2, self.abstract_dim)) # P(o_t+1...o_T | q_t=i, lambda)
+        pi = np.ones(self.abstract_dim) / self.abstract_dim
         prev_likelihood = 0
 
         for epoch in range(1, max_epochs + 1):
@@ -192,7 +193,7 @@ class AbstractMDPsContrastive:
         plots = np.concatenate(plots, 1)
 
         plt.imshow(plots)
-        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/figures/fig_%.6f_%d.png' % (likelihood, i))
+        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/exp3/fig_%.6f_%d.png' % (likelihood, i))
         #plt.show()
 
 
@@ -201,8 +202,9 @@ if __name__ == '__main__':
     # vals, vectors= laplacian.generate_laplacian()
     # laplacian.gen_plot(vectors[:, 1])
     envs = [#FourRoomsModEnv(gridsize=15, room_wh=(6, 6)),
-            FourRoomsModEnv(gridsize=15, room_wh=(7, 7)),
-            #BridgeEnv(),
+            #FourRoomsModEnv(gridsize=15, room_wh=(7, 7)),
+            #TwoRoomsModEnv(gridsize=15, room_w=7)
+            BridgeEnv(),
             #FourRoomsModEnv(gridsize=15, room_wh=(7, 7), close_doors=["west"])
             #FourRoomsModEnv(gridsize=15, room_wh=(6, 7)),
             ]
@@ -210,7 +212,7 @@ if __name__ == '__main__':
 
     for i in range(tries):
         a = AbstractMDPsContrastive(envs)
-        likelihood = a.train(max_epochs=1000)
+        likelihood = a.train(max_epochs=300)
         #print(a.mean_t)
         #print(a.y1)
         a.gen_plot(likelihood, i)
