@@ -1,3 +1,6 @@
+"""
+Separate self transitions vs other transitions.
+"""
 import numpy as np
 
 
@@ -160,12 +163,15 @@ class AbstractMDPsContrastive:
         self.optimizer = optim.Adam(self.all_encoder_lst.parameters(), lr=1e-4)
 
     def train(self, max_epochs=100):
+        a_dim = self.abstract_dim
 
         mixture = from_numpy(np.ones((self.n_envs, self.n_abstract_mdps)) / self.n_abstract_mdps)
-        all_abstract_t = from_numpy(np.random.uniform(size=(self.n_abstract_mdps, self.abstract_dim, self.abstract_dim)))
-        all_abstract_t /= all_abstract_t.sum(1, keepdim=True)
+        all_abstract_t = from_numpy(np.random.uniform(size=(self.n_abstract_mdps, a_dim, a_dim)))
+        self_t = from_numpy(np.zeros((self.n_envs, a_dim)) + 0.9)
+        all_abstract_t[:, np.arange(a_dim), np.arange(a_dim)] = 0
+        all_abstract_t /= (all_abstract_t.sum(1, keepdim=True) + 1e-8)
         for epoch in range(1, max_epochs + 1):
-            stats, abstract_t = self.train_epoch(epoch, mixture, all_abstract_t)
+            stats, abstract_t = self.train_epoch(epoch, mixture, all_abstract_t, self_t)
             print(stats)
             print(mixture)
             print(abstract_t)
@@ -191,6 +197,8 @@ class AbstractMDPsContrastive:
         a_t = from_numpy(np.zeros((self.abstract_dim, self.abstract_dim)))
         for i in range(self.abstract_dim):
             for j in range(self.abstract_dim):
+                if i == j:
+                    continue
                 if hardcounts:
                     a_t[i, j] += ((y1.max(-1)[1] == i).float() * (y2.max(-1)[1] == j).float()).sum()
                 else:
@@ -213,12 +221,12 @@ class AbstractMDPsContrastive:
         return y1, y2, y3
 
 
-    def train_epoch(self, epoch, mixture, all_abstract_t):
+    def train_epoch(self, epoch, mixture, all_abstract_t, self_t):
 
 
         # train encoder
         for i in range(5):
-            stats, all_concrete_ll = self.train_encoder(epoch, mixture, all_abstract_t)
+            stats, all_concrete_ll = self.train_encoder(epoch, mixture, all_abstract_t, self_t)
 
         # compute mixture components
         mixture[:] = all_concrete_ll / (all_concrete_ll.sum(1, keepdim=True) + 1e-12)
@@ -226,38 +234,59 @@ class AbstractMDPsContrastive:
         # compute abstract transitions using mixture
         all_empirical_t = []
         for i in range(self.n_abstract_mdps):
-            empirical_t = [self.compute_empirical_t(self.envs[j], self.all_encoder_lst[j][i]) for j in range(self.n_envs)]
+            empirical_t = [self.compute_empirical_t(self.envs[j], self.all_encoder_lst[j][i], hardcounts=False) for j in range(self.n_envs)]
             all_empirical_t.append(empirical_t)
 
         for i in range(self.n_abstract_mdps):
             all_abstract_t[i] = (mixture[:, i].view(-1, 1, 1) * torch.stack(all_empirical_t[i])).sum(0)
+
+        all_abstract_t[:, np.arange(self.abstract_dim), np.arange(self.abstract_dim)] = 0
         all_abstract_t[:] = all_abstract_t / (all_abstract_t.sum(-1, keepdim=True) + 1e-12)
+
+        # Compute self transitions
+        for i in range(self.n_envs):
+            self_t[i, :] = all_empirical_t[mixture[i, :].argmax()][i][np.arange(self.abstract_dim), np.arange(self.abstract_dim)]
+
 
         return stats, all_abstract_t
 
-    def compute_abstract_trans_ll(self, y1, y2, A):
+    def compute_abstract_trans_ll(self, y1, y2, A, self_t):
+        # Compute likelihood only using non diagonal
+        A_nondiag = A.clone()
+        A_nondiag[np.arange(A.shape[0]), np.arange(A.shape[0])] = 0
+        A_nondiag /= (A_nondiag.sum(1, keepdim=True) + 1e-8)
+
         a_ll = from_numpy(np.zeros(1))
+        loss_ll = from_numpy(np.zeros(1))
         for i in range(self.abstract_dim):
             for j in range(self.abstract_dim):
-                a_ll += (y1[:, i] * y2[:, j] * torch.log(A[i, j].detach() + 1e-12)).sum()
+                if i == j:
+                    continue
+                    loss_ll += (self_t[i].detach() * y1[:, i] * y2[:, j] * torch.log(self_t[i].detach() + 1e-12)).sum()
+                else:
+                    #((1-self_t[i].detach())
+                    val = (y1[:, i] * y2[:, j] * torch.log(A_nondiag[i, j].detach() + 1e-12)).sum()
+                    a_ll += val # TODO 1 - self_t here?
+                    loss_ll += val
         #a_ll /= (y1.shape[0] * self.abstract_dim)
         #import pdb; pdb.set_trace()
-        return a_ll
+        return a_ll, loss_ll
 
 
-    def train_encoder(self, epoch, mixture, all_abstract_t):
+    def train_encoder(self, epoch, mixture, all_abstract_t, self_t):
         stats = OrderedDict([('Loss', 0), ('Entropy1', 0), ('Entropy2', 0),])
 
         #compute likelihood under each abstract mdp weighted by mixture
+        self.optimizer.zero_grad()
         all_concrete_ll = from_numpy(np.zeros(mixture.shape))
         loss = from_numpy(np.zeros(1))
         for i in range(self.n_envs):
             for j in range(self.n_abstract_mdps):
                 y1, y2, y3 = self.encode_transitions(self.envs[i], self.all_encoder_lst[i][j])
-                concrete_ll = self.compute_abstract_trans_ll(y1, y2, all_abstract_t[j])
+                concrete_ll, loss_ll = self.compute_abstract_trans_ll(y1, y2, all_abstract_t[j], self_t[i])
                 all_concrete_ll[i, j] = concrete_ll.detach()
                 marginal_entropy = self.entropy(y3.sum(0) / y3.sum())
-                loss += mixture[i, j] * (concrete_ll + 1000*marginal_entropy)
+                loss += mixture[i, j] * (loss_ll + 1000*marginal_entropy)
 
                 stats['Entropy1'] += marginal_entropy.item()
 
