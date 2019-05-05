@@ -6,6 +6,8 @@ from rlkit.torch.core import PyTorchModule
 
 import numpy as np
 
+from rlkit.torch.modules import LayerNorm2D
+
 
 class CNN(PyTorchModule):
     def __init__(
@@ -26,6 +28,7 @@ class CNN(PyTorchModule):
             hidden_init=nn.init.xavier_uniform_,
             hidden_activation=nn.ReLU(),
             output_activation=identity,
+            layernorm=False,
     ):
         if hidden_sizes is None:
             hidden_sizes = []
@@ -52,6 +55,9 @@ class CNN(PyTorchModule):
         self.conv_norm_layers = nn.ModuleList()
         self.fc_layers = nn.ModuleList()
         self.fc_norm_layers = nn.ModuleList()
+        self.layer_norm = None
+        if layernorm:
+            self.layer_norm = LayerNorm2D(1)
 
         for out_channels, kernel_size, stride, padding in \
                 zip(n_channels, kernel_sizes, strides, paddings):
@@ -96,20 +102,21 @@ class CNN(PyTorchModule):
     def forward(self, input):
         fc_input = (self.added_fc_input_size != 0)
         # import pdb; pdb.set_trace()
-        conv_input = input.narrow(start=0,
-                                  length=self.conv_input_length,
-                                  dim=1).contiguous()
-
+        # conv_input = input.narrow(start=0,
+        #                           length=self.conv_input_length,
+        #                           dim=1).contiguous()
+        if self.layer_norm is not None:
+            input = self.layer_norm(input)
         if fc_input:
             extra_fc_input = input.narrow(start=self.conv_input_length,
                                           length=self.added_fc_input_size,
                                           dim=1)
         # need to reshape from batch of flattened images into (channsls, w, h)
-        h = conv_input.view(conv_input.shape[0],
-                            self.input_channels,
-                            self.input_height,
-                            self.input_width)
-
+        # h = conv_input.view(conv_input.shape[0],
+        #                     self.input_channels,
+        #                     self.input_height,
+        #                     self.input_width)
+        h = input
         h = self.apply_forward(h, self.conv_layers, self.conv_norm_layers,
                                use_batch_norm=self.batch_norm_conv)
         # flatten channels for fc layers
