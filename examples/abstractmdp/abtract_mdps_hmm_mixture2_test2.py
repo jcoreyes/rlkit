@@ -1,11 +1,12 @@
 """
-Save abstract transitions
+Evaluate likelihood with true encodings
+Using stay prob version.
 """
 
 import gym
 import numpy as np
-import gym_minigrid
-from gym_minigrid.envs.fourrooms import FourRoomsModEnv, BridgeEnv, WallEnv, TwoRoomsModEnv
+#import gym_minigrid
+from rlkit.envs.gym_minigrid.envs.fourrooms import FourRoomsModEnv, BridgeEnv, WallEnv, TwoRoomsModEnv
 from mpl_toolkits.mplot3d import axes3d, Axes3D
 from matplotlib import cm
 import matplotlib.pyplot as plt
@@ -74,6 +75,31 @@ class EnvContainer:
     def all_states(self):
         return self.states_np
 
+    def get_decoding(self):
+        s = self.states_np
+        x = s[:, 0]
+        y = s[:, 1]
+
+        z = np.zeros((x.shape[0], 4))
+
+        def get_class_idx(x, y):
+            mid_x = 5
+            mid_y = 5
+            if x < mid_x and y < mid_y:
+                return 0
+            elif x >= mid_x and y < mid_y:
+                return 1
+            elif x < mid_x and y >= mid_y:
+                return 2
+            else:
+                return 3
+
+        for i, s in enumerate(self.states):
+            z[i, get_class_idx(*s)] = 1
+
+        return z
+
+
 class AbstractMDPsContrastive:
     def __init__(self, envs):
         self.envs = [EnvContainer(env) for env in envs]
@@ -91,7 +117,26 @@ class AbstractMDPsContrastive:
         #
         # self.optimizer = optim.Adam(self.encoder.parameters())
 
-    def compute_alpha(self, A, B, O, pi):
+    def get_nondiag_A(self, A):
+        B = A.copy()
+        B[np.arange(4), np.arange(4)] = 0
+        B /= B.sum(1, keepdims=True)
+        return B
+
+    def use_A(self, A, i, j, diag):
+        # non diag version
+
+        B = A.copy()
+        B[np.arange(4), np.arange(4)] = 0
+        B /= B.sum(1, keepdims=True)
+
+        if i == j:
+            return diag[i]
+        else:
+            # return (1 - diag[i]) * B[i, j]
+            return  B[i, j]
+
+    def compute_alpha(self, A, B, O, pi, diag):
         # print(A.shape)
         # print(B.shape)
         # print(O.shape)
@@ -102,25 +147,27 @@ class AbstractMDPsContrastive:
         alpha[:, 1, :] = 0
         for j in range(A.shape[0]):
             for i in range(A.shape[0]):
-                alpha[:, 1, j] += alpha[:, 0, i] * A[i, j] * B[O[:, 1], j]
+                alpha[:, 1, j] += alpha[:, 0, i] * self.use_A(A, i, j, diag) * B[O[:, 1], j]
         alpha /= alpha.sum(-1, keepdims=True)
         return alpha
 
-    def compute_beta(self, A, B, O):
+    def compute_beta(self, A, B, O, diag):
         num_seq = O.shape[0]
         beta = np.zeros((num_seq, 2, A.shape[0]))
         beta[:, 1, :] = 1
         beta[:, 0, :] = 0
         for i in range(A.shape[0]):
             for j in range(A.shape[0]):
-                beta[:, 0, i] += A[i, j] * B[O[:, 1], j] * beta[:, 1, j]
+                beta[:, 0, i] += self.use_A(A, i, j, diag) * B[O[:, 1], j] * beta[:, 1, j]
         beta /= beta.sum(-1, keepdims=True)
         return beta
 
-    def compute_gamma_zeta(self, alpha, beta, A, B, O):
+    def compute_gamma_zeta(self, alpha, beta, A, B, O, diag):
 
         gamma = alpha * beta
         likelihood = gamma.sum(-1)[:, 0].mean()
+        #import pdb; pdb.set_trace()
+
         num_seq = alpha.shape[0]
         # normalize gamma
         gamma = gamma / gamma.sum(-1, keepdims=True)  # P(q_t=j|O, lambda)
@@ -130,7 +177,7 @@ class AbstractMDPsContrastive:
         norm = (alpha[:, 0, :] * beta[:, 0, :]).sum(-1)
         for i in range(A.shape[0]):
             for j in range(A.shape[0]):
-                zeta[:, i, j] = alpha[:, 0, i] * A[i, j] * B[O[:, 1], j] * beta[:, 1, j] / norm
+                zeta[:, i, j] = alpha[:, 0, i] * self.use_A(A, i, j, diag) * B[O[:, 1], j] * beta[:, 1, j] / norm
         return gamma, zeta, likelihood
 
     def compute_A(self, zeta, a_dim):
@@ -175,19 +222,28 @@ class AbstractMDPsContrastive:
         B_lst = []
         O_lst = []
         n_envs = len(self.envs)
+        diag_lst = []
         for i, env in enumerate(self.envs):
             n_states = len(env.states)
             B_inner_lst = []
+            diag_inner_lst = []
             for j in range(self.n_abstract_mdps):
                 #B = np.ones((n_states, self.abstract_dims[j])) / n_states # P(o_t|q_t=i)
-                B = np.random.uniform(size=(n_states, self.abstract_dims[j]))
+                #B = np.random.uniform(size=(n_states, self.abstract_dims[j]))
+                B = env.get_decoding()
                 B /= B.sum(0, keepdims=True)
                 B_inner_lst.append(B)
+                diag_inner_lst.append(np.ones(self.abstract_dims[j]) / float(self.abstract_dims[j]))
             B_lst.append(B_inner_lst)
+            diag_lst.append(diag_inner_lst)
             O = np.array(self.envs[i].transitions)
             O_lst.append(O)
 
-        mixture = np.zeros((n_envs, self.n_abstract_mdps))
+        #mixture = np.zeros((n_envs, self.n_abstract_mdps))
+        mixture = np.array([[0.9, 0.1],
+                           [0.1, 0.9]])
+        # mixture = np.array([[0.5, 0.5],
+        #                    [0.5, 0.5]])
 
         likelihood = np.zeros((n_envs, self.n_abstract_mdps))
         gamma_lst = [[[] for _ in range(n_envs)] for _ in range(self.n_abstract_mdps)]
@@ -198,14 +254,15 @@ class AbstractMDPsContrastive:
             # E step
             for i in range(self.n_abstract_mdps):
                 for j in range(n_envs):
-                    alpha = self.compute_alpha(A_lst[i], B_lst[j][i], O_lst[j], pi_lst[i])
-                    beta = self.compute_beta(A_lst[i], B_lst[j][i], O_lst[j])
-                    gamma, zeta, ll = self.compute_gamma_zeta(alpha, beta, A_lst[i], B_lst[j][i], O_lst[j])
+                    alpha = self.compute_alpha(A_lst[i], B_lst[j][i], O_lst[j], pi_lst[i], diag_lst[j][i])
+                    beta = self.compute_beta(A_lst[i], B_lst[j][i], O_lst[j], diag_lst[j][i])
+                    gamma, zeta, ll = self.compute_gamma_zeta(alpha, beta, A_lst[i], B_lst[j][i], O_lst[j],
+                                                              diag_lst[j][i])
                     gamma_lst[i][j] = gamma
                     zeta_lst[i][j] = zeta
                     likelihood[j, i] = ll
-                    mixture[j, i] = ll
-            mixture /= mixture.sum(-1, keepdims=True)
+                    #mixture[j, i] = ll
+            #mixture /= mixture.sum(-1, keepdims=True)
             total_ll = (likelihood * mixture).sum() / self.n_envs
             #print(mixture)
             #print(total_ll)
@@ -216,14 +273,15 @@ class AbstractMDPsContrastive:
                 for j in range(n_envs):
                     A = self.compute_A(zeta_lst[i][j], self.abstract_dims[i])
                     A /= A.sum(1, keepdims=True)
+                    diag_lst[i][j] = A[np.arange(4), np.arange(4)]
                     A_lst[i] += mixture[j, i] * A
                 A_lst[i] = A_lst[i] / A_lst[i].sum(1, keepdims=True)
 
                     # normalize A
 
-            for i in range(self.n_abstract_mdps):
-                for j in range(self.n_envs):
-                    B_lst[j][i] = self.compute_B(gamma_lst[i][j], O_lst[j], len(self.envs[j].states), self.abstract_dims[i])
+            #for i in range(self.n_abstract_mdps):
+            #    for j in range(self.n_envs):
+            #        B_lst[j][i] = self.compute_B(gamma_lst[i][j], O_lst[j], len(self.envs[j].states), self.abstract_dims[i])
 
         best_encoder = []
         for i in range(self.n_envs):
@@ -258,7 +316,7 @@ class AbstractMDPsContrastive:
         plots = np.concatenate(plots, 1)
 
         plt.imshow(plots)
-        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/exp2/fig_%.3f_%d.png' % (likelihood, i))
+        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/true_decoding/fig_%.3f_%d.png' % (likelihood, i))
         #plt.show()
 
 
@@ -277,7 +335,7 @@ if __name__ == '__main__':
             #FourRoomsModEnv(gridsize=15, room_wh=(7, 7), close_doors=["west"])
             #FourRoomsModEnv(gridsize=15, room_wh=(6, 7)),
             ]
-    tries = 500
+    tries = 1
 
 
     data = [[], [], []]
@@ -293,7 +351,10 @@ if __name__ == '__main__':
         #print(a.mean_t)
         #print(a.y1)
         #a.gen_plot(likelihood, i)
-    save_dir = '/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/exp2/'
+    #import pdb; pdb.set_trace()
+    print(a.get_nondiag_A(A[0]))
+    print(a.get_nondiag_A(A[1]))
+    save_dir = '/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/true_decoding/'
     np.save(save_dir + 'abstract_t.npy', np.stack(data[0]))
     np.save(save_dir + 'mixture.npy', np.stack(data[1]))
     np.save(save_dir + 'likelihood.npy', np.array(data[2]))

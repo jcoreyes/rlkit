@@ -1,5 +1,6 @@
 """
 Save abstract transitions
+Score likelihoods just based on nondiagonal abstract transitions
 """
 
 import gym
@@ -17,6 +18,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils import data
 from collections import OrderedDict
+import matplotlib.pyplot as plt
 
 
 class EnvContainer:
@@ -91,7 +93,7 @@ class AbstractMDPsContrastive:
         #
         # self.optimizer = optim.Adam(self.encoder.parameters())
 
-    def compute_alpha(self, A, B, O, pi):
+    def compute_alpha(self, A, B, O, pi, eps=0):
         # print(A.shape)
         # print(B.shape)
         # print(O.shape)
@@ -103,10 +105,10 @@ class AbstractMDPsContrastive:
         for j in range(A.shape[0]):
             for i in range(A.shape[0]):
                 alpha[:, 1, j] += alpha[:, 0, i] * A[i, j] * B[O[:, 1], j]
-        alpha /= alpha.sum(-1, keepdims=True)
+        alpha /= (alpha.sum(-1, keepdims=True) + eps)
         return alpha
 
-    def compute_beta(self, A, B, O):
+    def compute_beta(self, A, B, O, eps=0):
         num_seq = O.shape[0]
         beta = np.zeros((num_seq, 2, A.shape[0]))
         beta[:, 1, :] = 1
@@ -114,13 +116,94 @@ class AbstractMDPsContrastive:
         for i in range(A.shape[0]):
             for j in range(A.shape[0]):
                 beta[:, 0, i] += A[i, j] * B[O[:, 1], j] * beta[:, 1, j]
-        beta /= beta.sum(-1, keepdims=True)
+        beta /= (beta.sum(-1, keepdims=True) + eps)
         return beta
+
+    def zero_diag(self, A):
+        keep = np.logical_not(np.eye(A.shape[0]))
+        return A * keep
+
+    def nondiag_trans(self, A):
+        B = self.zero_diag(A)
+        B /= ((B + 1e-8).sum(1))
+        return B
+
+    def get_nondiag_from_O(self, decoder, O):
+        s1 = decoder[O[:, 0]].argmax(-1)
+        s2 = decoder[O[:, 1]].argmax(-1)
+
+        counts = np.zeros((self.abstract_dim, self.abstract_dim))
+        for i in range(s1.shape[0]):
+            counts[s1[i], s2[i]] += 1
+
+        empirical_A = self.zero_diag(counts)
+        empirical_A /= (empirical_A.sum(1, keepdims=True) + 1e-12)
+
+        return empirical_A
+
+    def compute_nondiag_trans(self, A, B, O, gamma):
+        # compute probability that observations came from A only including nondiag transitions
+        decoder = B / (B.sum(1, keepdims=True) + 1e-12)
+        s1 = decoder[O[:, 0]].argmax(-1)
+        s2 = decoder[O[:, 1]].argmax(-1)
+
+        idx = s1 != s2
+
+        counts = np.zeros((self.abstract_dim, self.abstract_dim))
+        for i in range(s1.shape[0]):
+            counts[s1[i], s2[i]] += 1
+
+
+        #empirical_A = self.zero_diag(counts)
+        #empirical_A /= (empirical_A.sum(1, keepdims=True) + 1e-12)
+
+        a_dim = A.shape[0]
+        pi = np.ones(a_dim) / a_dim
+        A_nondiag = self.nondiag_trans(A)
+        if idx.sum() > 0:
+            O_new = O[idx, :]
+            alpha = self.compute_alpha(A_nondiag, B, O_new, pi, eps=1e-20)
+            beta = self.compute_beta(A_nondiag, B, O_new, eps=1e-20)
+            gamma =  alpha * beta
+        # counts = np.zeros((self.abstract_dim, self.abstract_dim))
+        # for i in range(s1.shape[0]):
+        #     counts[s1[i], s2[i]] += 1
+        #
+        # empirical_A = self.zero_diag(counts)
+        # empirical_A /= (empirical_A.sum(1, keepdims=True) + 1e-12)
+        #
+        # model_A = self.zero_diag(A)
+        # model_A /= (model_A.sum(1, keepdims=True) + 1e-12)
+        #
+        # kl = (model_A * (np.log(model_A + 1e-12) - np.log(empirical_A + 1e-12))).sum(-1).mean()
+        # ll = np.exp(-kl)
+            nondiag_ll = gamma
+            nondiag_ll = nondiag_ll.sum(-1)[:, 0].mean()
+        else:
+            nondiag_ll = 0
+
+        return nondiag_ll
 
     def compute_gamma_zeta(self, alpha, beta, A, B, O):
 
         gamma = alpha * beta
         likelihood = gamma.sum(-1)[:, 0].mean()
+
+        # compute likelihood only based on non diag transitions
+
+        # TODO Filter out rows of gamma that have the same hidden state as highest prob for both
+        # time steps
+        nondiag_ll = self.compute_nondiag_trans(A, B, O, gamma)
+        # max_hidden = gamma.argmax(-1)
+        # idx = max_hidden[:, 0] != max_hidden[:, 1]
+        # if idx.sum() > 0:
+        #     nondiag_ll = gamma[idx]
+        #     nondiag_ll = nondiag_ll.sum(-1)[:, 0].mean()
+        # else:
+        #     nondiag_ll = 0
+        #
+        # print(idx.sum())
+
         num_seq = alpha.shape[0]
         # normalize gamma
         gamma = gamma / gamma.sum(-1, keepdims=True)  # P(q_t=j|O, lambda)
@@ -131,7 +214,7 @@ class AbstractMDPsContrastive:
         for i in range(A.shape[0]):
             for j in range(A.shape[0]):
                 zeta[:, i, j] = alpha[:, 0, i] * A[i, j] * B[O[:, 1], j] * beta[:, 1, j] / norm
-        return gamma, zeta, likelihood
+        return gamma, zeta, nondiag_ll, likelihood
 
     def compute_A(self, zeta, a_dim):
         A = np.zeros((a_dim, a_dim))
@@ -200,14 +283,17 @@ class AbstractMDPsContrastive:
                 for j in range(n_envs):
                     alpha = self.compute_alpha(A_lst[i], B_lst[j][i], O_lst[j], pi_lst[i])
                     beta = self.compute_beta(A_lst[i], B_lst[j][i], O_lst[j])
-                    gamma, zeta, ll = self.compute_gamma_zeta(alpha, beta, A_lst[i], B_lst[j][i], O_lst[j])
+                    gamma, zeta, nondiag_ll, ll = self.compute_gamma_zeta(alpha, beta, A_lst[i],
+                                                                     B_lst[j][i], O_lst[j])
                     gamma_lst[i][j] = gamma
                     zeta_lst[i][j] = zeta
                     likelihood[j, i] = ll
-                    mixture[j, i] = ll
+                    mixture[j, i] = nondiag_ll + 1e-8
+
             mixture /= mixture.sum(-1, keepdims=True)
-            total_ll = (likelihood * mixture).sum() / self.n_envs
             #print(mixture)
+            total_ll = (likelihood * mixture).sum() / self.n_envs
+
             #print(total_ll)
             # M Step
             for i in range(self.n_abstract_mdps):
@@ -226,8 +312,10 @@ class AbstractMDPsContrastive:
                     B_lst[j][i] = self.compute_B(gamma_lst[i][j], O_lst[j], len(self.envs[j].states), self.abstract_dims[i])
 
         best_encoder = []
+        best_A = []
         for i in range(self.n_envs):
             abstract_idx = mixture[i].argmax()
+            best_A.append(abstract_idx)
             best_B = B_lst[i][abstract_idx]
             pi = pi_lst[abstract_idx].reshape((1, -1))
             decoder = best_B * pi# / best_B.sum(1, keepdims=True) + 1e-8
@@ -238,7 +326,7 @@ class AbstractMDPsContrastive:
             best_encoder.append(decoder)
 
         total_ll = (likelihood * mixture).sum() / self.n_envs
-        self.gen_plot(total_ll, try_no, best_encoder)
+        self.gen_plot(total_ll, try_no, best_encoder, mixture, best_A, A_lst, O_lst)
         # B /= B.sum(1, keepdims=True)
         # print(A)
         # print(B[:5])
@@ -252,14 +340,30 @@ class AbstractMDPsContrastive:
         return -(dist * torch.log(dist + 1e-8)).sum(-1)
 
 
-    def gen_plot(self, likelihood, i, encoder_lst):
-        plots = [env.gen_plot(encoder_lst[j]) for j, env in enumerate(self.envs)]
+    def gen_plot(self, likelihood, i, encoder_lst, mixture, best_A, A_lst, O_lst):
+        plots = [env.gen_plot(encoder_lst[j]) for j, env in enumerate(
+            self.envs)]
 
-        plots = np.concatenate(plots, 1)
 
-        plt.imshow(plots)
-        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/exp2/fig_%.3f_%d.png' % (likelihood, i))
+        #fig = plt.figure()
+        fig, axs = plt.subplots(1, len(plots), figsize=(10, 5))
+        for j in range(len(plots)):
+            #plots = np.concatenate(plots, 1)
+            axs[j].imshow(plots[j])
+            A = self.nondiag_trans(A_lst[best_A[j]])
+            #A = self.get_nondiag_from_O(encoder_lst[j], O_lst[j])
+
+            axs[j].set_title(np.array2string(A, formatter={'float_kind':lambda x: "%.2f" % x}))
+            axs[j].set_xlabel(np.array2string(mixture[j], formatter={'float_kind':lambda x: "%.3f" %
+                                                                                        x}))
+        # mixture[j], A_lst[best_A[j]
+
+
+        #plt.imshow(plots)
+        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/exp3/fig_%.3f_%d.png'
+                    '' % (likelihood, i))
         #plt.show()
+        plt.clf()
 
 
 if __name__ == '__main__':
@@ -267,9 +371,9 @@ if __name__ == '__main__':
     # vals, vectors= laplacian.generate_laplacian()
     # laplacian.gen_plot(vectors[:, 1])
     envs = [FourRoomsModEnv(gridsize=11, room_wh=(5, 5)),
-            #FourRoomsModEnv(gridsize=11, room_wh=(5, 4)),
+            FourRoomsModEnv(gridsize=11, room_wh=(5, 4)),
             FourRoomsModEnv(gridsize=11, room_wh=(5, 5), close_doors=["north", "south"]),
-            #FourRoomsModEnv(gridsize=11, room_wh=(5, 4), close_doors=["north", "south"])
+            FourRoomsModEnv(gridsize=11, room_wh=(5, 4), close_doors=["north", "south"])
             #FourRoomsModEnv(gridsize=15, room_wh=(7, 6)),
             #TwoRoomsModEnv(gridsize=11, room_w=5),
             #TwoRoomsModEnv(gridsize=11, room_w=5, door_pos=1)
@@ -277,13 +381,13 @@ if __name__ == '__main__':
             #FourRoomsModEnv(gridsize=15, room_wh=(7, 7), close_doors=["west"])
             #FourRoomsModEnv(gridsize=15, room_wh=(6, 7)),
             ]
-    tries = 500
+    tries = 1500
 
 
     data = [[], [], []]
     for i in range(tries):
         a = AbstractMDPsContrastive(envs)
-        likelihood, A, mixture = a.train(i, max_epochs=300)
+        likelihood, A, mixture = a.train(i, max_epochs=300) # 300
         print(likelihood)
         print(A)
         print(mixture)

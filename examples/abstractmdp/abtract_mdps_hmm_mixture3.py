@@ -1,5 +1,5 @@
 """
-Save abstract transitions
+Separate A into trans diff state and stay for each env.
 """
 
 import gym
@@ -161,20 +161,15 @@ class AbstractMDPsContrastive:
             for j in range(a_dim):
                A[j, j] += 10
 
-            #if i == 0:
-            #    pi[:2] = 0.3
-                #A[:, :2] = 0.1
-
             A /= A.sum(-1, keepdims=True)
             A_lst.append(A)
-
-
             pi /= pi.sum()
             pi_lst.append(pi)
 
         B_lst = []
         O_lst = []
         n_envs = len(self.envs)
+
         for i, env in enumerate(self.envs):
             n_states = len(env.states)
             B_inner_lst = []
@@ -258,7 +253,7 @@ class AbstractMDPsContrastive:
         plots = np.concatenate(plots, 1)
 
         plt.imshow(plots)
-        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/exp2/fig_%.3f_%d.png' % (likelihood, i))
+        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/exp1/fig_%.3f_%d.png' % (likelihood, i))
         #plt.show()
 
 
@@ -267,9 +262,9 @@ if __name__ == '__main__':
     # vals, vectors= laplacian.generate_laplacian()
     # laplacian.gen_plot(vectors[:, 1])
     envs = [FourRoomsModEnv(gridsize=11, room_wh=(5, 5)),
-            #FourRoomsModEnv(gridsize=11, room_wh=(5, 4)),
+            FourRoomsModEnv(gridsize=11, room_wh=(5, 4)),
             FourRoomsModEnv(gridsize=11, room_wh=(5, 5), close_doors=["north", "south"]),
-            #FourRoomsModEnv(gridsize=11, room_wh=(5, 4), close_doors=["north", "south"])
+            FourRoomsModEnv(gridsize=11, room_wh=(5, 4), close_doors=["north", "south"])
             #FourRoomsModEnv(gridsize=15, room_wh=(7, 6)),
             #TwoRoomsModEnv(gridsize=11, room_w=5),
             #TwoRoomsModEnv(gridsize=11, room_w=5, door_pos=1)
@@ -277,7 +272,7 @@ if __name__ == '__main__':
             #FourRoomsModEnv(gridsize=15, room_wh=(7, 7), close_doors=["west"])
             #FourRoomsModEnv(gridsize=15, room_wh=(6, 7)),
             ]
-    tries = 500
+    tries = 1000
 
 
     data = [[], [], []]
@@ -293,7 +288,7 @@ if __name__ == '__main__':
         #print(a.mean_t)
         #print(a.y1)
         #a.gen_plot(likelihood, i)
-    save_dir = '/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/exp2/'
+    save_dir = '/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/exp1/'
     np.save(save_dir + 'abstract_t.npy', np.stack(data[0]))
     np.save(save_dir + 'mixture.npy', np.stack(data[1]))
     np.save(save_dir + 'likelihood.npy', np.array(data[2]))

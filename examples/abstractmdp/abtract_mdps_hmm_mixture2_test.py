@@ -1,11 +1,11 @@
 """
-Save abstract transitions
+Evaluate likelihood with true encodings
 """
 
 import gym
 import numpy as np
-import gym_minigrid
-from gym_minigrid.envs.fourrooms import FourRoomsModEnv, BridgeEnv, WallEnv, TwoRoomsModEnv
+#import gym_minigrid
+from rlkit.envs.gym_minigrid.envs.fourrooms import FourRoomsModEnv, BridgeEnv, WallEnv, TwoRoomsModEnv
 from mpl_toolkits.mplot3d import axes3d, Axes3D
 from matplotlib import cm
 import matplotlib.pyplot as plt
@@ -73,6 +73,31 @@ class EnvContainer:
 
     def all_states(self):
         return self.states_np
+
+    def get_decoding(self):
+        s = self.states_np
+        x = s[:, 0]
+        y = s[:, 1]
+
+        z = np.zeros((x.shape[0], 4))
+
+        def get_class_idx(x, y):
+            mid_x = 5
+            mid_y = 5
+            if x < mid_x and y < mid_y:
+                return 0
+            elif x >= mid_x and y < mid_y:
+                return 1
+            elif x < mid_x and y >= mid_y:
+                return 2
+            else:
+                return 3
+
+        for i, s in enumerate(self.states):
+            z[i, get_class_idx(*s)] = 1
+
+        return z
+
 
 class AbstractMDPsContrastive:
     def __init__(self, envs):
@@ -180,14 +205,17 @@ class AbstractMDPsContrastive:
             B_inner_lst = []
             for j in range(self.n_abstract_mdps):
                 #B = np.ones((n_states, self.abstract_dims[j])) / n_states # P(o_t|q_t=i)
-                B = np.random.uniform(size=(n_states, self.abstract_dims[j]))
+                #B = np.random.uniform(size=(n_states, self.abstract_dims[j]))
+                B = env.get_decoding()
                 B /= B.sum(0, keepdims=True)
                 B_inner_lst.append(B)
             B_lst.append(B_inner_lst)
             O = np.array(self.envs[i].transitions)
             O_lst.append(O)
 
-        mixture = np.zeros((n_envs, self.n_abstract_mdps))
+        #mixture = np.zeros((n_envs, self.n_abstract_mdps))
+        mixture = np.array([[0.9, 0.1],
+                           [0.1, 0.9]])
 
         likelihood = np.zeros((n_envs, self.n_abstract_mdps))
         gamma_lst = [[[] for _ in range(n_envs)] for _ in range(self.n_abstract_mdps)]
@@ -204,8 +232,8 @@ class AbstractMDPsContrastive:
                     gamma_lst[i][j] = gamma
                     zeta_lst[i][j] = zeta
                     likelihood[j, i] = ll
-                    mixture[j, i] = ll
-            mixture /= mixture.sum(-1, keepdims=True)
+                    #mixture[j, i] = ll
+            #mixture /= mixture.sum(-1, keepdims=True)
             total_ll = (likelihood * mixture).sum() / self.n_envs
             #print(mixture)
             #print(total_ll)
@@ -221,9 +249,9 @@ class AbstractMDPsContrastive:
 
                     # normalize A
 
-            for i in range(self.n_abstract_mdps):
-                for j in range(self.n_envs):
-                    B_lst[j][i] = self.compute_B(gamma_lst[i][j], O_lst[j], len(self.envs[j].states), self.abstract_dims[i])
+            #for i in range(self.n_abstract_mdps):
+            #    for j in range(self.n_envs):
+            #        B_lst[j][i] = self.compute_B(gamma_lst[i][j], O_lst[j], len(self.envs[j].states), self.abstract_dims[i])
 
         best_encoder = []
         for i in range(self.n_envs):
@@ -258,7 +286,7 @@ class AbstractMDPsContrastive:
         plots = np.concatenate(plots, 1)
 
         plt.imshow(plots)
-        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/exp2/fig_%.3f_%d.png' % (likelihood, i))
+        plt.savefig('/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/true_decoding/fig_%.3f_%d.png' % (likelihood, i))
         #plt.show()
 
 
@@ -277,7 +305,7 @@ if __name__ == '__main__':
             #FourRoomsModEnv(gridsize=15, room_wh=(7, 7), close_doors=["west"])
             #FourRoomsModEnv(gridsize=15, room_wh=(6, 7)),
             ]
-    tries = 500
+    tries = 1
 
 
     data = [[], [], []]
@@ -293,7 +321,7 @@ if __name__ == '__main__':
         #print(a.mean_t)
         #print(a.y1)
         #a.gen_plot(likelihood, i)
-    save_dir = '/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/exp2/'
+    save_dir = '/home/jcoreyes/abstract/rlkit/examples/abstractmdp/exps/true_decoding/'
     np.save(save_dir + 'abstract_t.npy', np.stack(data[0]))
     np.save(save_dir + 'mixture.npy', np.stack(data[1]))
     np.save(save_dir + 'likelihood.npy', np.array(data[2]))

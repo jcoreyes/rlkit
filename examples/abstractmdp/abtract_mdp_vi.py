@@ -138,7 +138,11 @@ class AbstractMDPVI:
         dataset = data.TensorDataset(from_numpy(np.arange(len(self.states))))
         dataloader = data.DataLoader(dataset, batch_size=128, shuffle=True)
         values = np.load("/home/jcoreyes/abstract/rlkit/examples/abstractmdp/values.npy")
+        import pdb;
+        pdb.set_trace()
         values = from_numpy(np.abs(values))
+
+
         for epoch in range(1, max_epochs + 1):
             stats = self.train_epoch(dataloader, epoch, values)
 
